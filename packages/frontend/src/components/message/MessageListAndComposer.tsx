@@ -1,4 +1,10 @@
-import React, { useRef, useEffect, useCallback, useEffectEvent } from 'react'
+import React, {
+  useRef,
+  useEffect,
+  useCallback,
+  useEffectEvent,
+  useState,
+} from 'react'
 import { join, parse, ParsedPath } from 'path'
 import { T } from '@deltachat/jsonrpc-client'
 
@@ -18,6 +24,10 @@ import useMessage from '../../hooks/chat/useMessage'
 import { Viewtype } from '@deltachat/jsonrpc-client/dist/generated/types'
 import { useMessageList } from '../../stores/messagelist'
 import { IMAGE_EXTENSIONS } from '@deltachat-desktop/shared/constants'
+import ChatSuggestionPanel from './ChatSuggestionPanel'
+import { useChatSuggestion } from '../../hooks/chat/useChatSuggestion'
+import { shouldRenderSuggestionPanel } from './chatSuggestionPanelState'
+import { resolveAutoPopulateDecision } from '../../hooks/chat/chatSuggestionAutoPopulate'
 
 const log = getLogger('renderer/MessageListAndComposer')
 
@@ -272,6 +282,56 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
   }, [onMouseUp])
 
   const settingsStore = useSettingsStore()[0]
+  const { suggestionState, bridgeFeatureEnabled, actions } = useChatSuggestion(
+    accountId,
+    chat
+  )
+  // Session-scoped toggle: in-memory only, reset after app restart.
+  const [autoSuggestionEnabled, setAutoSuggestionEnabled] = useState(false)
+  const handledAutoSuggestionByChatRef = useRef<Map<number, string>>(new Map())
+
+  useEffect(() => {
+    const lastHandledIdentity =
+      handledAutoSuggestionByChatRef.current.get(chat.id) ?? null
+
+    const decision = resolveAutoPopulateDecision({
+      autoEnabled: autoSuggestionEnabled,
+      currentChatId: chat.id,
+      suggestionState,
+      draftState: {
+        text: draftState.text,
+        file: draftState.file,
+        quote: draftState.quote,
+      },
+      lastHandledSuggestionIdentity: lastHandledIdentity,
+    })
+
+    if (decision.handledReadySuggestionIdentity == null) {
+      return
+    }
+
+    handledAutoSuggestionByChatRef.current.set(
+      chat.id,
+      decision.handledReadySuggestionIdentity
+    )
+
+    if (!decision.shouldApply || decision.suggestionText == null) {
+      return
+    }
+
+    updateDraftText(decision.suggestionText, chat.id)
+  }, [
+    autoSuggestionEnabled,
+    chat.id,
+    draftState.file,
+    draftState.quote,
+    draftState.text,
+    suggestionState,
+    updateDraftText,
+  ])
+
+  const showSuggestionSidebar =
+    bridgeFeatureEnabled && shouldRenderSuggestionPanel(suggestionState)
   // If you want to update this, don't forget to update
   // the `.background-preview` element as well.
   const style = settingsStore
@@ -285,34 +345,56 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
       ref={conversationRef}
       onDragOver={onDragOver}
     >
-      <div className='message-list-and-composer__message-list'>
-        <MessageListMemoized
-          accountId={accountId}
-          chat={chat}
-          refComposer={refComposer}
-          messageListStore={messageListStore}
-          messageListState={messageListState}
-          fetchMoreBottom={fetchMoreBottom}
-          fetchMoreTop={fetchMoreTop}
-        />
+      <div className='message-list-and-composer__content'>
+        <div className='message-list-and-composer__main'>
+          <div className='message-list-and-composer__message-list'>
+            <MessageListMemoized
+              accountId={accountId}
+              chat={chat}
+              refComposer={refComposer}
+              messageListStore={messageListStore}
+              messageListState={messageListState}
+              fetchMoreBottom={fetchMoreBottom}
+              fetchMoreTop={fetchMoreTop}
+            />
+          </div>
+          <Composer
+            ref={refComposer}
+            selectedChat={chat}
+            isContactRequest={chat.isContactRequest}
+            regularMessageInputRef={regularMessageInputRef}
+            editMessageInputRef={editMessageInputRef}
+            draftState={draftState}
+            draftIsLoading={draftIsLoading}
+            updateDraftText={updateDraftText}
+            onSelectReplyToShortcut={onSelectReplyToShortcut}
+            removeQuote={removeQuote}
+            addFileToDraft={addFileToDraft}
+            removeFile={removeFile}
+            clearDraftState={clearDraftState}
+            setDraftState={setDraftState}
+            messageCache={messageListState.messageCache}
+          />
+        </div>
+        {showSuggestionSidebar && (
+          <aside className='message-list-and-composer__suggestion-side'>
+            <ChatSuggestionPanel
+              state={suggestionState}
+              onCopy={() => {
+                void actions.copySuggestion()
+              }}
+              onRegenerate={() => {
+                void actions.regenerateSuggestion()
+              }}
+              onDismiss={() => {
+                void actions.dismissSuggestion()
+              }}
+              autoEnabled={autoSuggestionEnabled}
+              onToggleAuto={setAutoSuggestionEnabled}
+            />
+          </aside>
+        )}
       </div>
-      <Composer
-        ref={refComposer}
-        selectedChat={chat}
-        isContactRequest={chat.isContactRequest}
-        regularMessageInputRef={regularMessageInputRef}
-        editMessageInputRef={editMessageInputRef}
-        draftState={draftState}
-        draftIsLoading={draftIsLoading}
-        updateDraftText={updateDraftText}
-        onSelectReplyToShortcut={onSelectReplyToShortcut}
-        removeQuote={removeQuote}
-        addFileToDraft={addFileToDraft}
-        removeFile={removeFile}
-        clearDraftState={clearDraftState}
-        setDraftState={setDraftState}
-        messageCache={messageListState.messageCache}
-      />
     </div>
   )
 }

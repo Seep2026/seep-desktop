@@ -164,6 +164,40 @@ $ pnpm -w start:electron
 
 For development with local `deltachat core` read [`docs/UPDATE_CORE.md`](docs/UPDATE_CORE.md).
 
+### Seep Claw Bridge Suggestion Panel (Experimental)
+
+This fork includes an experimental, bridge-backed reply suggestion panel for the
+currently open chat in the desktop client.
+
+The desktop app only talks to a local `seep_claw_bridge` service and does not
+call OpenClaw directly.
+
+Requirements:
+
+- `seep_claw_bridge` running locally (default: `http://127.0.0.1:8765`)
+- desktop app running in Electron/Tauri target (browser target is disabled)
+
+Optional bridge URL override:
+
+- `SEEP_CLAW_BRIDGE_URL` environment variable
+- or browser-like local storage key: `seep_claw_bridge_base_url`
+
+Current behavior/limitations:
+
+- polling-based (`GET /suggestions/:chatId` every ~1s while current chat is open)
+- current-chat oriented (no global all-chat background polling)
+- suggestions panel actions:
+  - Copy suggestion
+  - Regenerate
+  - Dismiss/Ignore
+- auto toggle (`auto`) is available in the panel (session-scoped, in-memory)
+- when `auto` is enabled:
+  - desktop auto-populates the current composer only for new `ready` suggestions
+  - auto-population is skipped if the composer already has text/attachment/quote
+  - the same `ready` suggestion is auto-applied at most once per chat
+- no auto-send in this milestone
+- if the bridge is unavailable, normal messaging keeps working
+
 ### Troubleshooting <a id="troubleshooting"></a>
 
 - This module builds on top of [`deltachat core`](https://github.com/chatmail/core),

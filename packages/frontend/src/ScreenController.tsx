@@ -23,6 +23,7 @@ import { ChatProvider, UnselectChat } from './contexts/ChatContext'
 import { ContextMenuProvider } from './contexts/ContextMenuContext'
 import { InstantOnboardingProvider } from './contexts/InstantOnboardingContext'
 import { SmallScreenModeMacOSTitleBar } from './components/SmallScreenModeMacOSTitleBar'
+import { forwardIncomingMessageToSeepBridge } from './bridge/seepClawBridgeEventForwarder'
 
 const log = getLogger('renderer/ScreenController')
 
@@ -76,6 +77,7 @@ export default class ScreenController extends Component {
     this.onDeleteAccount = this.onDeleteAccount.bind(this)
     this.onExitWelcomeScreen = this.onExitWelcomeScreen.bind(this)
     this.updateSmallScreenMode = this.updateSmallScreenMode.bind(this)
+    this.onIncomingMsgForSuggestion = this.onIncomingMsgForSuggestion.bind(this)
 
     window.__userFeedback = this.userFeedback.bind(this)
     window.__changeScreen = this.changeScreen.bind(this)
@@ -266,6 +268,7 @@ export default class ScreenController extends Component {
 
   componentDidMount() {
     BackendRemote.on('Error', this.onError)
+    BackendRemote.on('IncomingMsg', this.onIncomingMsgForSuggestion)
 
     runtime.onResumeFromSleep = throttle(() => {
       log.info('onResumeFromSleep')
@@ -284,6 +287,7 @@ export default class ScreenController extends Component {
 
   componentWillUnmount() {
     BackendRemote.off('Error', this.onError)
+    BackendRemote.off('IncomingMsg', this.onIncomingMsgForSuggestion)
 
     window.removeEventListener('resize', this.updateSmallScreenMode)
   }
@@ -296,6 +300,17 @@ export default class ScreenController extends Component {
       return
     }
     this.userFeedback({ type: 'error', text: msg })
+  }
+
+  onIncomingMsgForSuggestion(
+    accountId: number,
+    { chatId, msgId }: DcEventType<'IncomingMsg'>
+  ) {
+    void forwardIncomingMessageToSeepBridge({
+      accountId,
+      chatId,
+      messageId: msgId,
+    })
   }
 
   onSuccess(_event: any, text: string) {

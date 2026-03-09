@@ -16,6 +16,8 @@ import {
   DropListener,
   MediaAccessStatus,
   MediaType,
+  RuntimeHttpRequest,
+  RuntimeHttpResponse,
   Runtime,
 } from '@deltachat-desktop/runtime-interface'
 import { BaseDeltaChat, yerpc } from '@deltachat/jsonrpc-client'
@@ -559,6 +561,11 @@ class ElectronRuntime implements Runtime {
   // undefined is returned if the platform does not support askForMediaAccess
   askForMediaAccess(mediaType: MediaType): Promise<boolean | undefined> {
     return ipcBackend.invoke('askForMediaAccess', mediaType)
+  }
+  requestHttp(
+    request: RuntimeHttpRequest
+  ): Promise<RuntimeHttpResponse | null> {
+    return ipcBackend.invoke('runtime.requestHttp', request)
   }
 }
 

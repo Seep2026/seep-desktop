@@ -48,7 +48,10 @@ export async function updateCoreStrings() {
     [C.DC_STR_NEW_GROUP_SEND_FIRST_MESSAGE]: tx('chat_new_group_hint'),
     [C.DC_STR_SAVED_MESSAGES]: tx('saved_messages'),
     [C.DC_STR_CONTACT_VERIFIED]: tx('contact_verified'),
-    [C.DC_STR_DEVICE_MESSAGES_HINT]: tx('device_talk_explain'),
+    [C.DC_STR_DEVICE_MESSAGES_HINT]: tx('device_talk_explain').replaceAll(
+      'Delta Chat',
+      'Seep'
+    ),
     [C.DC_STR_WELCOME_MESSAGE]: tx('device_talk_welcome_message2'),
     [C.DC_STR_SUBJECT_FOR_NEW_CONTACT]: tx('systemmsg_subject_for_new_contact'),
     [C.DC_STR_FAILED_SENDING_TO]: tx('systemmsg_failed_sending_to'),

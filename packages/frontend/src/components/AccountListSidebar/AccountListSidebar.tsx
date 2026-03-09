@@ -25,10 +25,7 @@ import useChat from '../../hooks/chat/useChat'
 import { Screens } from '../../ScreenController'
 import { ActionEmitter, KeybindAction } from '../../keybindings'
 import useTranslationFunction from '../../hooks/useTranslationFunction'
-import {
-  RovingTabindexProvider,
-  useRovingTabindex,
-} from '../../contexts/RovingTabindex'
+import { RovingTabindexProvider } from '../../contexts/RovingTabindex'
 import classNames from 'classnames'
 import { useRpcFetch } from '../../hooks/useFetch'
 import AlertDialog from '../dialogs/AlertDialog'
@@ -40,6 +37,8 @@ type Props = {
   openAccountDeletionScreen: (accountId: number) => Promise<void>
   selectedAccountId?: number
 }
+
+const ENABLE_ACCOUNT_SIDEBAR_ADD_BUTTON = false
 
 export default function AccountListSidebar({
   onAddAccount,
@@ -229,9 +228,11 @@ export default function AccountListSidebar({
                 </li>
               ))
             )}
-            <li>
-              <AddAccountButton onClick={onAddAccount} />
-            </li>
+            {ENABLE_ACCOUNT_SIDEBAR_ADD_BUTTON && (
+              <li>
+                <AddAccountButton onClick={onAddAccount} />
+              </li>
+            )}
           </RovingTabindexProvider>
         </ul>
       </nav>
@@ -269,27 +270,7 @@ export default function AccountListSidebar({
   )
 }
 
-function AddAccountButton(props: { onClick: () => void }) {
-  const tx = useTranslationFunction()
-
-  const ref = useRef<HTMLButtonElement>(null)
-  // This relies on the existence of `RovingTabindexProvider`.
-  // This is why this button is a separate component.
-  const rovingTabindex = useRovingTabindex(ref)
-
-  return (
-    <button
-      type='button'
-      ref={ref}
-      aria-label={tx('add_account')}
-      className={classNames(styles.addButton, rovingTabindex.className)}
-      tabIndex={rovingTabindex.tabIndex}
-      data-testid='add-account-button'
-      onKeyDown={rovingTabindex.onKeydown}
-      onFocus={rovingTabindex.setAsActiveElement}
-      {...props}
-    >
-      +
-    </button>
-  )
+function AddAccountButton(_props: { onClick: () => void }) {
+  // Seep customization: hide the sidebar "add account" entry.
+  return null
 }

@@ -47,7 +47,7 @@ export default function About({ onClose }: DialogProps) {
         <DialogContent>
           <div className={styles.aboutContent}>
             <img src='./images/intro1.png' />
-            <h1 className={styles.appName}>Delta Chat {edition}</h1>
+            <h1 className={styles.appName}>Seep {edition}</h1>
             <div>
               v{VERSION}
               {runtime.getRC_Config().devmode && (
@@ -58,8 +58,8 @@ export default function About({ onClose }: DialogProps) {
               )}
             </div>
             <div>
-              <ClickableLink href={'https://delta.chat'}>
-                {'https://delta.chat'}
+              <ClickableLink href={'https://seep.im'}>
+                {'https://seep.im'}
               </ClickableLink>
             </div>
             <div className={styles.buttonContainer}>

@@ -1063,7 +1063,7 @@
     <string name="delta_chat_homepage">Delta Chat 主页</string>
     <string name="contribute">贡献</string>
     <string name="global_menu_help_report_desktop">报告问题</string>
-    <string name="global_menu_help_about_desktop">关于 Delta Chat</string>
+    <string name="global_menu_help_about_desktop">About Seep</string>
     <string name="global_menu_file_open_desktop">打开 Delta Chat</string>
     <string name="global_menu_minimize_to_tray">最小化</string>
     <string name="no_chat_selected_suggestion_desktop">选择聊天或创建新聊天</string>

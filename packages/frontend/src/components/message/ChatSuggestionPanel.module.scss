@@ -1,0 +1,100 @@
+.panel {
+  margin: 0;
+  border-radius: 8px;
+  border: 1px solid var(--messageSeparationLineColor);
+  background: color-mix(in srgb, var(--chatViewBg), #ffffff 8%);
+  padding: 10px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.headerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.title {
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.2;
+  opacity: 0.9;
+}
+
+.statusBadge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--messageSeparationLineColor);
+  font-size: 11px;
+  text-transform: lowercase;
+}
+
+.ready {
+  background: color-mix(in srgb, #5dbb63, transparent 85%);
+}
+
+.generating {
+  background: color-mix(in srgb, #56a6ff, transparent 85%);
+}
+
+.error {
+  background: color-mix(in srgb, #d04f4f, transparent 85%);
+}
+
+.stale {
+  background: color-mix(in srgb, #c9922e, transparent 85%);
+}
+
+.body {
+  margin: 10px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 240px;
+  flex: 1 1 auto;
+  overflow: auto;
+  background: transparent;
+  font-family: inherit;
+  border: 1px solid color-mix(in srgb, var(--messageSeparationLineColor), transparent 30%);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+
+  button {
+    border-radius: 6px;
+    border: 1px solid var(--messageSeparationLineColor);
+    background: transparent;
+    color: var(--global-text-color);
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+
+  button[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.autoToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--messageSeparationLineColor);
+  border-radius: 6px;
+  padding: 4px 8px;
+  user-select: none;
+
+  input {
+    margin: 0;
+    cursor: pointer;
+  }
+}

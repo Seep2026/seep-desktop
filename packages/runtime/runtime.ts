@@ -22,6 +22,20 @@ export type MediaAccessStatus =
   | 'restricted'
   | 'unknown'
 
+export type RuntimeHttpRequest = {
+  url: string
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+  timeoutMs?: number
+}
+
+export type RuntimeHttpResponse = {
+  ok: boolean
+  status: number
+  bodyText: string
+}
+
 export type DropListener = {
   /** element that gets compared against the event target,
   either by bounds or by event target path */
@@ -204,6 +218,14 @@ export interface Runtime {
 
   // undefined if the platform does not support askForMediaAccess
   askForMediaAccess: (mediaType: MediaType) => Promise<boolean | undefined>
+
+  /**
+   * Optional runtime-level HTTP helper.
+   * Electron can use this to route requests via main process and avoid renderer-side network policy limits.
+   */
+  requestHttp?: (
+    request: RuntimeHttpRequest
+  ) => Promise<RuntimeHttpResponse | null>
 }
 
 export const runtime: Runtime = (window as any).r

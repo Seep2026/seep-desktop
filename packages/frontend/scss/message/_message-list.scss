@@ -87,6 +87,33 @@
   }
 }
 
+.message-list-and-composer__content {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.message-list-and-composer__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.message-list-and-composer__suggestion-side {
+  width: min(360px, 30vw);
+  min-width: 280px;
+  max-width: 420px;
+  border-left: 1px solid var(--messageSeparationLineColor);
+  background: color-mix(in srgb, var(--chatViewBg), #ffffff 6%);
+  overflow-y: hidden;
+  padding: 10px;
+  display: flex;
+  min-height: 0;
+}
+
 .message-list-and-composer__message-list {
   position: relative;
   flex-grow: 1;
@@ -175,5 +202,27 @@
         }
       }
     }
+  }
+}
+
+@media (max-width: 1100px) {
+  .message-list-and-composer__suggestion-side {
+    width: min(300px, 34vw);
+    min-width: 240px;
+  }
+}
+
+@media (max-width: 900px) {
+  .message-list-and-composer__content {
+    flex-direction: column;
+  }
+
+  .message-list-and-composer__suggestion-side {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid var(--messageSeparationLineColor);
+    max-height: 220px;
   }
 }

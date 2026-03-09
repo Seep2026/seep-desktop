@@ -1080,7 +1080,7 @@
     <string name="delta_chat_homepage">Delta Chat Homepage</string>
     <string name="contribute">Contribute</string>
     <string name="global_menu_help_report_desktop">Report an Issue</string>
-    <string name="global_menu_help_about_desktop">About Delta Chat</string>
+    <string name="global_menu_help_about_desktop">About Seep</string>
     <string name="global_menu_file_open_desktop">Open Delta Chat</string>
     <string name="global_menu_minimize_to_tray">Minimize</string>
     <string name="no_chat_selected_suggestion_desktop">Select a chat or create a new chat</string>

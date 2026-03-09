@@ -44,7 +44,10 @@ import { appx, mapPackagePath } from './isAppx.js'
 import DeltaChatController from './deltachat/controller.js'
 import { BuildInfo } from './get-build-info.js'
 import { updateContentProtectionOnAllActiveWindows } from './content-protection.js'
-import { MediaType } from '@deltachat-desktop/runtime-interface'
+import {
+  MediaType,
+  RuntimeHttpRequest,
+} from '@deltachat-desktop/runtime-interface'
 import {
   startHandlingIncomingVideoCalls,
   startOutgoingVideoCall,
@@ -218,6 +221,30 @@ export async function init(cwd: string, logHandler: LogHandler) {
       })
     }
   )
+
+  ipcMain.handle('runtime.requestHttp', async (_ev, request: RuntimeHttpRequest) => {
+    const controller = new AbortController()
+    const timeoutMs = request.timeoutMs ?? 3000
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetch(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
+        signal: controller.signal,
+      })
+      const bodyText = await response.text()
+      return {
+        ok: response.ok,
+        status: response.status,
+        bodyText,
+      }
+    } catch (_error) {
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  })
 
   ipcMain.handle('fileChooser', async (_ev, options) => {
     if (!mainWindow.window) {

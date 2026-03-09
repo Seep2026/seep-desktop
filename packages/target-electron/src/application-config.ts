@@ -4,8 +4,11 @@ if (process.env.NODE_ENV !== 'production') {
   try {
     process.loadEnvFile?.() // loads ./, falls back on cwd
   } catch (e) {
-    // eslint-disable-next-line no-console
-    console.error('Failed to load .env file', e)
+    // .env is optional in local dev. Silence missing-file noise, warn on real parsing/permission errors.
+    if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      // eslint-disable-next-line no-console
+      console.warn('Failed to load .env file', e)
+    }
   }
 }
 
