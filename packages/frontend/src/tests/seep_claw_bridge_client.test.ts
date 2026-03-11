@@ -193,7 +193,15 @@ describe('chat suggestion guards', () => {
       updatedAt: 1000,
       suggestedReply: 'reply',
     })
-    expect(key).to.be.a('string')
+    expect(key).to.equal('req:r1')
+    expect(
+      suggestionIdentity({
+        requestId: 'r1',
+        sourceMessageId: 5,
+        updatedAt: 2000,
+        suggestedReply: 'reply',
+      })
+    ).to.equal('req:r1')
     expect(
       suggestionIdentity({
         requestId: null,

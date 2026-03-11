@@ -8,13 +8,16 @@ import React, {
 import { join, parse, ParsedPath } from 'path'
 import { T } from '@deltachat/jsonrpc-client'
 
-import Composer from '../composer/Composer'
+import Composer, {
+  type ComposerActionHandle,
+  type ComposerInternalSendResult,
+} from '../composer/Composer'
 import { useDraft } from '../../hooks/chat/useDraft'
 import { getLogger } from '../../../../shared/logger'
 import MessageList from './MessageList'
 import type ComposerMessageInput from '../composer/ComposerMessageInput'
 import { DesktopSettingsType } from '../../../../shared/shared-types'
-import { runtime } from '@deltachat-desktop/runtime-interface'
+import { runtime, type AutoManagedRuntimeState } from '@deltachat-desktop/runtime-interface'
 import { RecoverableCrashScreen } from '../screens/RecoverableCrashScreen'
 import { useSettingsStore } from '../../stores/settings'
 import ConfirmSendingFiles from '../dialogs/ConfirmSendingFiles'
@@ -27,9 +30,48 @@ import { IMAGE_EXTENSIONS } from '@deltachat-desktop/shared/constants'
 import ChatSuggestionPanel from './ChatSuggestionPanel'
 import { useChatSuggestion } from '../../hooks/chat/useChatSuggestion'
 import { shouldRenderSuggestionPanel } from './chatSuggestionPanelState'
-import { resolveAutoPopulateDecision } from '../../hooks/chat/chatSuggestionAutoPopulate'
+import {
+  type AutoPopulatedSuggestion,
+  resolveAutoPopulateDecision,
+  resolveAutoSendDecision,
+} from '../../hooks/chat/chatSuggestionAutoPopulate'
 
 const log = getLogger('renderer/MessageListAndComposer')
+const AUTO_SUGGESTION_TOGGLE_STORAGE_KEY = 'seep_suggestion_auto_enabled'
+const autoSentSuggestionByAccountAndChat = new Map<string, string>()
+const autoSentSourceMessageIdByAccountAndChat = new Map<string, number>()
+const handledReadySuggestionByAccountAndChat = new Map<string, string>()
+
+function accountChatKey(accountId: number, chatId: number) {
+  return `${accountId}:${chatId}`
+}
+
+function readPersistedAutoSuggestionEnabled() {
+  try {
+    const maybeLocalStorage = (globalThis as any).localStorage
+    if (!maybeLocalStorage || typeof maybeLocalStorage.getItem !== 'function') {
+      return false
+    }
+    return maybeLocalStorage.getItem(AUTO_SUGGESTION_TOGGLE_STORAGE_KEY) === 'true'
+  } catch (_error) {
+    return false
+  }
+}
+
+function persistAutoSuggestionEnabled(nextValue: boolean) {
+  try {
+    const maybeLocalStorage = (globalThis as any).localStorage
+    if (!maybeLocalStorage || typeof maybeLocalStorage.setItem !== 'function') {
+      return
+    }
+    maybeLocalStorage.setItem(
+      AUTO_SUGGESTION_TOGGLE_STORAGE_KEY,
+      String(nextValue)
+    )
+  } catch (_error) {
+    // no-op
+  }
+}
 
 type Props = {
   chat: T.FullChat
@@ -106,6 +148,7 @@ function isImage(file: ParsedPath) {
 export default function MessageListAndComposer({ accountId, chat }: Props) {
   const conversationRef = useRef<HTMLDivElement>(null)
   const refComposer = useRef(null)
+  const composerActionRef = useRef<ComposerActionHandle | null>(null)
 
   const { openDialog, hasOpenDialogs } = useDialog()
   const { sendMessage } = useMessage()
@@ -286,16 +329,65 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
     accountId,
     chat
   )
-  // Session-scoped toggle: in-memory only, reset after app restart.
-  const [autoSuggestionEnabled, setAutoSuggestionEnabled] = useState(false)
-  const handledAutoSuggestionByChatRef = useRef<Map<number, string>>(new Map())
+  const {
+    markSuggestionUsed,
+    clearSuggestionAfterSend,
+  } = actions
+  const [autoSuggestionEnabled, setAutoSuggestionEnabledState] = useState(
+    () => readPersistedAutoSuggestionEnabled()
+  )
+  const setAutoSuggestionEnabled = useCallback((nextValue: boolean) => {
+    setAutoSuggestionEnabledState(nextValue)
+    persistAutoSuggestionEnabled(nextValue)
+  }, [])
+  const isMainProcessAutoManagedMode =
+    runtime.getRuntimeInfo().target === 'electron'
+  const [autoManagedState, setAutoManagedState] =
+    useState<AutoManagedRuntimeState | null>(null)
 
   useEffect(() => {
+    if (!isMainProcessAutoManagedMode || !runtime.getAutoManagedState) {
+      setAutoManagedState(null)
+      return
+    }
+    let cancelled = false
+    void runtime.getAutoManagedState().then(state => {
+      if (!cancelled) {
+        setAutoManagedState(state)
+      }
+    })
+    const unsubscribe =
+      runtime.onAutoManagedStateChange?.(nextState => {
+        if (!cancelled) {
+          setAutoManagedState(nextState)
+        }
+      }) ?? (() => {})
+
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [isMainProcessAutoManagedMode])
+
+  const autoManagedStatusText = isMainProcessAutoManagedMode
+    ? `Auto-managed: ${autoManagedState?.paused ? 'Paused' : 'Running'}`
+    : null
+  const rendererAutoSuggestionEnabled =
+    autoSuggestionEnabled && !isMainProcessAutoManagedMode
+  const autoPopulatedSuggestionByChatRef = useRef<
+    Map<number, AutoPopulatedSuggestion>
+  >(new Map())
+  const autoSendAttemptedSuggestionByChatRef = useRef<Map<number, string>>(
+    new Map()
+  )
+
+  useEffect(() => {
+    const accountChat = accountChatKey(accountId, chat.id)
     const lastHandledIdentity =
-      handledAutoSuggestionByChatRef.current.get(chat.id) ?? null
+      handledReadySuggestionByAccountAndChat.get(accountChat) ?? null
 
     const decision = resolveAutoPopulateDecision({
-      autoEnabled: autoSuggestionEnabled,
+      autoEnabled: rendererAutoSuggestionEnabled,
       currentChatId: chat.id,
       suggestionState,
       draftState: {
@@ -310,8 +402,8 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
       return
     }
 
-    handledAutoSuggestionByChatRef.current.set(
-      chat.id,
+    handledReadySuggestionByAccountAndChat.set(
+      accountChat,
       decision.handledReadySuggestionIdentity
     )
 
@@ -320,14 +412,104 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
     }
 
     updateDraftText(decision.suggestionText, chat.id)
+    autoPopulatedSuggestionByChatRef.current.set(chat.id, {
+      suggestionIdentity: decision.handledReadySuggestionIdentity,
+      suggestionText: decision.suggestionText,
+    })
+    autoSendAttemptedSuggestionByChatRef.current.delete(chat.id)
   }, [
-    autoSuggestionEnabled,
+    accountId,
+    rendererAutoSuggestionEnabled,
     chat.id,
     draftState.file,
     draftState.quote,
     draftState.text,
     suggestionState,
     updateDraftText,
+  ])
+
+  useEffect(() => {
+    const accountChat = accountChatKey(accountId, chat.id)
+    const autoPopulatedSuggestion =
+      autoPopulatedSuggestionByChatRef.current.get(chat.id) ?? null
+    const lastAutoSentSuggestionIdentity =
+      autoSentSuggestionByAccountAndChat.get(accountChat) ?? null
+    const lastAutoSentSourceMessageId =
+      autoSentSourceMessageIdByAccountAndChat.get(accountChat) ?? null
+
+    const decision = resolveAutoSendDecision({
+      autoEnabled: rendererAutoSuggestionEnabled,
+      currentChatId: chat.id,
+      suggestionState,
+      draftState: {
+        text: draftState.text,
+        file: draftState.file,
+        quote: draftState.quote,
+      },
+      autoPopulatedSuggestion,
+      lastAutoSentSuggestionIdentity,
+      lastAutoSentSourceMessageId,
+    })
+
+    if (!decision.shouldSend || decision.suggestionIdentity == null) {
+      return
+    }
+    const suggestionIdentity = decision.suggestionIdentity
+
+    if (
+      autoSendAttemptedSuggestionByChatRef.current.get(chat.id) ===
+      suggestionIdentity
+    ) {
+      return
+    }
+
+    const composerActions = composerActionRef.current
+    if (!composerActions || !composerActions.canInvokeInternalSend()) {
+      return
+    }
+
+    autoSendAttemptedSuggestionByChatRef.current.set(
+      chat.id,
+      suggestionIdentity
+    )
+
+    const runAutoSend = async () => {
+      let result: ComposerInternalSendResult
+      try {
+        result = await composerActions.invokeInternalSendIfPossible()
+      } catch (error) {
+        log.warn('auto send invocation failed', error)
+        return
+      }
+      if (!result.invoked) {
+        autoSendAttemptedSuggestionByChatRef.current.delete(chat.id)
+        return
+      }
+      if (result.sent) {
+        autoSentSuggestionByAccountAndChat.set(accountChat, suggestionIdentity)
+        if (suggestionState.sourceMessageId != null) {
+          autoSentSourceMessageIdByAccountAndChat.set(
+            accountChat,
+            suggestionState.sourceMessageId
+          )
+        }
+        void markSuggestionUsed('sent_directly')
+        clearSuggestionAfterSend(suggestionIdentity)
+        autoPopulatedSuggestionByChatRef.current.delete(chat.id)
+        autoSendAttemptedSuggestionByChatRef.current.delete(chat.id)
+      }
+    }
+    void runAutoSend()
+  }, [
+    accountId,
+    rendererAutoSuggestionEnabled,
+    chat.id,
+    draftState.file,
+    draftState.quote,
+    draftState.text,
+    clearSuggestionAfterSend,
+    markSuggestionUsed,
+    suggestionState,
   ])
 
   const showSuggestionSidebar =
@@ -360,6 +542,7 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
           </div>
           <Composer
             ref={refComposer}
+            composerActionRef={composerActionRef}
             selectedChat={chat}
             isContactRequest={chat.isContactRequest}
             regularMessageInputRef={regularMessageInputRef}
@@ -384,6 +567,9 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
                 void actions.copySuggestion()
               }}
               onRegenerate={() => {
+                handledReadySuggestionByAccountAndChat.delete(
+                  accountChatKey(accountId, chat.id)
+                )
                 void actions.regenerateSuggestion()
               }}
               onDismiss={() => {
@@ -391,6 +577,7 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
               }}
               autoEnabled={autoSuggestionEnabled}
               onToggleAuto={setAutoSuggestionEnabled}
+              autoManagedStatusText={autoManagedStatusText}
             />
           </aside>
         )}

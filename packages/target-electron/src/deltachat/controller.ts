@@ -1,5 +1,5 @@
 import { app as rawApp, ipcMain } from 'electron'
-import { yerpc, BaseDeltaChat } from '@deltachat/jsonrpc-client'
+import { yerpc, BaseDeltaChat, type DcEvent } from '@deltachat/jsonrpc-client'
 import { getRPCServerPath } from '@deltachat/stdio-rpc-server'
 
 import { getLogger } from '../../../shared/logger.js'
@@ -66,6 +66,121 @@ export default class DeltaChatController {
     return this._jsonrpcRemote
   }
 
+  private mainEventPumpTask: Promise<void> | null = null
+  private stopMainEventPump = false
+
+  private readonly onCoreEvent = (contextId: number, event: DcEvent) => {
+    mainWindow.send('json-rpc-core-event', { contextId, event })
+    const message =
+      typeof (event as { msg?: unknown }).msg === 'string'
+        ? (event as { msg: string }).msg
+        : ''
+    if (event.kind === 'WebxdcRealtimeData') {
+      return
+    }
+    if (event.kind === 'Warning') {
+      logCoreEvent.warn(contextId, message)
+    } else if (event.kind === 'Info') {
+      logCoreEvent.info(contextId, message)
+    } else if (event.kind.startsWith('Error')) {
+      logCoreEvent.error(contextId, message)
+    } else if (app.rc['log-debug']) {
+      logCoreEvent.debug(contextId, event.kind, event)
+    }
+  }
+
+  private dispatchCoreEvent(contextId: number, event: DcEvent) {
+    const jsonrpcRemote_ = this._jsonrpcRemote
+    if (!jsonrpcRemote_) {
+      return
+    }
+    type JRPCDeltaChatWithPrivateExposed = {
+      [P in keyof typeof jsonrpcRemote_]: (typeof jsonrpcRemote_)[P]
+    } & {
+      contextEmitters: (typeof jsonrpcRemote_)['contextEmitters']
+    }
+    const jsonrpcRemote =
+      jsonrpcRemote_ as unknown as JRPCDeltaChatWithPrivateExposed
+
+    try {
+      ;(
+        jsonrpcRemote.emit as unknown as (
+          this: unknown,
+          eventName: string,
+          contextId: number,
+          payload: unknown
+        ) => void
+      ).call(jsonrpcRemote, event.kind, contextId, event)
+    } catch (error) {
+      log.error('core-event-listener-error', { contextId, kind: event.kind, error })
+    }
+
+    try {
+      ;(
+        jsonrpcRemote.emit as unknown as (
+          this: unknown,
+          eventName: string,
+          contextId: number,
+          payload: unknown
+        ) => void
+      ).call(jsonrpcRemote, 'ALL', contextId, event)
+    } catch (error) {
+      log.error('core-event-listener-error', {
+        contextId,
+        kind: 'ALL',
+        eventKind: event.kind,
+        error,
+      })
+    }
+
+    const contextEmitter = jsonrpcRemote.contextEmitters[contextId]
+    if (contextEmitter) {
+      try {
+        contextEmitter.emit(event.kind, event as any)
+      } catch (error) {
+        log.error('core-context-listener-error', {
+          contextId,
+          kind: event.kind,
+          error,
+        })
+      }
+      try {
+        contextEmitter.emit('ALL', event as any)
+      } catch (error) {
+        log.error('core-context-listener-error', {
+          contextId,
+          kind: 'ALL',
+          eventKind: event.kind,
+          error,
+        })
+      }
+    }
+
+    try {
+      this.onCoreEvent(contextId, event)
+    } catch (error) {
+      log.error('core-event-forward-error', { contextId, kind: event.kind, error })
+    }
+  }
+
+  private startMainEventPump() {
+    if (this.mainEventPumpTask) {
+      return
+    }
+    this.stopMainEventPump = false
+    this.mainEventPumpTask = (async () => {
+      while (!this.stopMainEventPump) {
+        try {
+          const nextEvent = await this.jsonrpcRemote.rpc.getNextEvent()
+          this.dispatchCoreEvent(nextEvent.contextId, nextEvent.event as DcEvent)
+        } catch (error) {
+          log.error('core-event-pump-error', error)
+          await new Promise(resolve => setTimeout(resolve, 250))
+        }
+      }
+    })()
+  }
+
   async init() {
     log.debug('Check if legacy accounts need migration')
     if (await migrateAccountsIfNeeded(this.cwd, getLogger('migration'))) {
@@ -90,6 +205,7 @@ export default class DeltaChatController {
     this.rpcServerPath = serverPath
     log.info('using deltachat-rpc-server at', { serverPath })
 
+    let mainProcessTransport: ElectronMainTransport | null = null
     this._inner_account_manager = new StdioServer(
       response => {
         try {
@@ -103,7 +219,7 @@ export default class DeltaChatController {
             const message = JSON.parse(response)
             if (message.id.startsWith('main-')) {
               message.id = Number(message.id.replace('main-', ''))
-              mainProcessTransport.onMessage(message)
+              mainProcessTransport?.onMessage(message)
               return
             }
           }
@@ -111,87 +227,12 @@ export default class DeltaChatController {
           log.error('jsonrpc-decode', error)
         }
         mainWindow.send('json-rpc-message', response)
-        if (response.indexOf('event') !== -1)
-          try {
-            const { result } = JSON.parse(response)
-            const { contextId, event } = result
-            if (
-              contextId !== undefined &&
-              typeof event === 'object' &&
-              event.kind
-            ) {
-              // A workaround.
-              // Intercept the events that go to the renderer
-              // and manually fire them on this JSON-RPC client.
-              // See comments below about why we don't call `rpc.getNextEvent()`
-              // on this JSON-RPC client.
-              //
-              // Note that, as you can see, if the renderer process
-              // stops polling for events for whatever reason,
-              // we will also stop emitting them here.
-              //
-              // The code is copy-pasted from
-              // https://github.com/chatmail/core/blob/df0c0c47bacabfb8dcb4a5ea5edd92dc0652e0b3/deltachat-jsonrpc/typescript/src/client.ts#L56-L70
-              const jsonrpcRemote_ = this._jsonrpcRemote
-              if (jsonrpcRemote_) {
-                type JRPCDeltaChatWithPrivateExposed = {
-                  [P in keyof typeof jsonrpcRemote_]: (typeof jsonrpcRemote_)[P]
-                } & {
-                  contextEmitters: (typeof jsonrpcRemote_)['contextEmitters']
-                }
-                const jsonrpcRemote =
-                  jsonrpcRemote_ as unknown as JRPCDeltaChatWithPrivateExposed
-                jsonrpcRemote.emit(
-                  result.event.kind,
-                  result.contextId,
-                  result.event
-                )
-                jsonrpcRemote.emit('ALL', result.contextId, result.event)
-                if (jsonrpcRemote.contextEmitters[result.contextId]) {
-                  jsonrpcRemote.contextEmitters[result.contextId].emit(
-                    result.event.kind,
-                    result.event as any
-                  )
-                  jsonrpcRemote.contextEmitters[result.contextId].emit(
-                    'ALL',
-                    result.event as any
-                  )
-                }
-              }
-
-              if (event.kind === 'WebxdcRealtimeData') {
-                return
-              }
-              if (event.kind === 'Warning') {
-                logCoreEvent.warn(contextId, event.msg)
-              } else if (event.kind === 'Info') {
-                logCoreEvent.info(contextId, event.msg)
-              } else if (event.kind.startsWith('Error')) {
-                logCoreEvent.error(contextId, event.msg)
-              } else if (app.rc['log-debug']) {
-                // in debug mode log all core events
-                const event_clone = Object.assign({}, event) as Partial<
-                  typeof event
-                >
-                delete event_clone.kind
-                logCoreEvent.debug(contextId, event.kind, event)
-              }
-            }
-          } catch (_error) {
-            // ignore json parse errors
-            return
-          }
       },
       this.cwd,
       serverPath
     )
 
-    this.account_manager.start()
-    log.info('HI')
-
-    //todo? multiple instances, accounts is always writable
-
-    const mainProcessTransport = new ElectronMainTransport(message => {
+    mainProcessTransport = new ElectronMainTransport(message => {
       message.id = `main-${message.id}`
       this.account_manager.send(JSON.stringify(message))
     })
@@ -200,13 +241,16 @@ export default class DeltaChatController {
       this.account_manager.send(message)
     })
 
+    this.account_manager.start()
+    log.info('HI')
+
     this._jsonrpcRemote = new JRPCDeltaChat(
       mainProcessTransport,
-      // Do NOT start calling `rpc.getNextEvent`.
-      // Because there can be only one consumer of
-      // `get_next_event`, and that is the renderer process's JSON-RPC client.
+      // Main process is the only consumer of `get_next_event`.
       false
     )
+    this.startMainEventPump()
+
     await disableDeleteFromServerConfig(
       this.jsonrpcRemote.rpc,
       getLogger('migration')

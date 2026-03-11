@@ -36,6 +36,18 @@ export type RuntimeHttpResponse = {
   bodyText: string
 }
 
+export type AutoManagedRuntimeState = {
+  enabled: boolean
+  paused: boolean
+  queue: Array<{
+    accountId: number
+    chatId: number
+    messageId: number
+    enqueuedAt: number
+  }>
+  [key: string]: unknown
+}
+
 export type DropListener = {
   /** element that gets compared against the event target,
   either by bounds or by event target path */
@@ -226,6 +238,16 @@ export interface Runtime {
   requestHttp?: (
     request: RuntimeHttpRequest
   ) => Promise<RuntimeHttpResponse | null>
+
+  /**
+   * Electron auto-managed runtime state helpers.
+   * Not all runtimes implement these.
+   */
+  getAutoManagedState?: () => Promise<AutoManagedRuntimeState | null>
+  setAutoManagedPaused?: (paused: boolean) => Promise<boolean>
+  onAutoManagedStateChange?: (
+    callback: (state: AutoManagedRuntimeState) => void
+  ) => () => void
 }
 
 export const runtime: Runtime = (window as any).r

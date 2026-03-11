@@ -17,6 +17,7 @@ type Props = {
   onDismiss: () => void
   autoEnabled: boolean
   onToggleAuto: (nextValue: boolean) => void
+  autoManagedStatusText?: string | null
 }
 
 export default function ChatSuggestionPanel({
@@ -26,14 +27,14 @@ export default function ChatSuggestionPanel({
   onDismiss,
   autoEnabled,
   onToggleAuto,
+  autoManagedStatusText,
 }: Props) {
   if (!shouldRenderSuggestionPanel(state)) {
     return null
   }
 
   const copyDisabled = !state.suggestedReply
-  const [copyLabel, regenerateLabel, dismissLabel, autoLabel] =
-    suggestionPanelActionLabels()
+  const [copyLabel, regenerateLabel, dismissLabel] = suggestionPanelActionLabels()
 
   return (
     <section className={styles.panel} aria-live='polite'>
@@ -51,6 +52,9 @@ export default function ChatSuggestionPanel({
           {suggestionPanelStatusText(state)}
         </span>
       </div>
+      {autoManagedStatusText && (
+        <div className={styles.autoManagedStatus}>{autoManagedStatusText}</div>
+      )}
 
       <pre className={styles.body}>{suggestionPanelBodyText(state)}</pre>
 
@@ -64,14 +68,20 @@ export default function ChatSuggestionPanel({
         <button type='button' onClick={onDismiss}>
           {dismissLabel}
         </button>
-        <label className={styles.autoToggle}>
-          <input
-            type='checkbox'
-            checked={autoEnabled}
-            onChange={event => onToggleAuto(event.target.checked)}
-          />
-          {autoLabel}
-        </label>
+        <button
+          type='button'
+          role='switch'
+          aria-checked={autoEnabled}
+          className={styles.autoSwitch}
+          onClick={() => onToggleAuto(!autoEnabled)}
+        >
+          <span className={styles.autoSwitchState}>
+            {autoEnabled ? 'Auto On' : 'Auto Off'}
+          </span>
+          <span className={styles.autoSwitchTrack}>
+            <span className={styles.autoSwitchThumb} />
+          </span>
+        </button>
       </div>
     </section>
   )

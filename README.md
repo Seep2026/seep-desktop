@@ -184,19 +184,25 @@ Optional bridge URL override:
 
 Current behavior/limitations:
 
-- polling-based (`GET /suggestions/:chatId` every ~1s while current chat is open)
-- current-chat oriented (no global all-chat background polling)
-- suggestions panel actions:
-  - Copy suggestion
-  - Regenerate
-  - Dismiss/Ignore
-- auto toggle (`auto`) is available in the panel (session-scoped, in-memory)
-- when `auto` is enabled:
-  - desktop auto-populates the current composer only for new `ready` suggestions
-  - auto-population is skipped if the composer already has text/attachment/quote
-  - the same `ready` suggestion is auto-applied at most once per chat
-- no auto-send in this milestone
+- desktop now includes a main-process auto-managed orchestrator
+  - enabled by default
+  - queue is chat-aware and duplicate-safe
+  - keeps working while the app process is running, even if the window is not frontmost
+- global pause/resume shortcuts (Electron `globalShortcut`):
+  - `Cmd+Shift+0` pause auto-managed mode
+  - `Cmd+Shift+9` resume auto-managed mode
+- automation uses local `seep_claw_bridge` only (no direct OpenClaw calls from desktop)
+- the existing in-chat "Reply suggestion" panel remains available for manual/human control
+- no DOM automation is used for sending
 - if the bridge is unavailable, normal messaging keeps working
+- safety model:
+  - stop queue advancement while paused
+  - skip stale/error suggestions
+  - skip duplicate request/source-message sends per chat
+  - keep per-chat/per-account isolation using stable composite chat ids (`accountId:chatId`)
+- current technical limitation:
+  - core events in Electron main process are forwarded from the renderer event polling path
+  - so automation remains background-capable with non-frontmost windows, but still depends on the renderer event pump being alive
 
 ### Troubleshooting <a id="troubleshooting"></a>
 

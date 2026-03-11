@@ -13,6 +13,22 @@ import { suggestionIdentity } from './chatSuggestionUtils'
 
 const log = getLogger('renderer/useChatSuggestion')
 const POLL_INTERVAL_MS = 1000
+type SuggestionConsumption = {
+  identity: string
+  mode: 'hide' | 'clear'
+}
+const consumedSuggestionByAccountAndChat = new Map<string, SuggestionConsumption>()
+
+function accountChatKey(accountId: number, chatId: number) {
+  return `${accountId}:${chatId}`
+}
+
+function resolveBridgeChatId(target: string, accountId: number, chatId: number) {
+  if (target === 'electron') {
+    return `${accountId}:${chatId}`
+  }
+  return String(chatId)
+}
 
 export type ChatSuggestionState = BridgeSuggestionState & {
   isPolling: boolean
@@ -78,11 +94,14 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
       }),
     []
   )
+  const runtimeTarget = runtime.getRuntimeInfo().target
   const bridgeFeatureEnabled = isBridgeFeatureEnabled()
+  const bridgeChatId = resolveBridgeChatId(runtimeTarget, accountId, chat.id)
 
   const activeChatIdRef = useRef(chat.id)
   const inFlightPollRef = useRef(false)
   const dismissedIdentityRef = useRef<string | null>(null)
+  const accountChat = accountChatKey(accountId, chat.id)
 
   useEffect(() => {
     activeChatIdRef.current = chat.id
@@ -97,18 +116,41 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
     ) => {
       setState(prev => {
         const identity = suggestionIdentity(next)
+        const consumedSuggestion =
+          consumedSuggestionByAccountAndChat.get(accountChat) ?? null
+        if (
+          identity != null &&
+          consumedSuggestion != null &&
+          consumedSuggestion.identity === identity
+        ) {
+          if (consumedSuggestion.mode === 'hide') {
+            return {
+              ...prev,
+              ...next,
+              isPolling: extras?.isPolling ?? prev.isPolling,
+              isSubmittingEvent: extras?.isSubmittingEvent ?? prev.isSubmittingEvent,
+              isDismissed: true,
+            }
+          }
+          return {
+            ...defaultSuggestionState(prev.chatId),
+            isPolling: extras?.isPolling ?? prev.isPolling,
+            isSubmittingEvent: extras?.isSubmittingEvent ?? prev.isSubmittingEvent,
+            isDismissed: false,
+          }
+        }
         return {
           ...prev,
           ...next,
           isPolling: extras?.isPolling ?? prev.isPolling,
           isSubmittingEvent: extras?.isSubmittingEvent ?? prev.isSubmittingEvent,
           isDismissed:
-            dismissedIdentityRef.current != null &&
-            dismissedIdentityRef.current === identity,
+            (dismissedIdentityRef.current != null &&
+              dismissedIdentityRef.current === identity),
         }
       })
     },
-    []
+    [accountChat]
   )
 
   const pollSuggestionOnce = useCallback(async () => {
@@ -119,7 +161,7 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
     setState(prev => ({ ...prev, isPolling: true }))
 
     const chatId = activeChatIdRef.current
-    const suggestion = await client.getSuggestion(chatId)
+    const suggestion = await client.getSuggestion(chatId, bridgeChatId)
 
     inFlightPollRef.current = false
 
@@ -138,10 +180,10 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
     }
 
     updateSuggestionState(suggestion, { isPolling: false })
-  }, [bridgeFeatureEnabled, client, updateSuggestionState])
+  }, [bridgeChatId, bridgeFeatureEnabled, client, updateSuggestionState])
 
   useEffect(() => {
-    if (!bridgeFeatureEnabled) {
+    if (!bridgeFeatureEnabled || runtimeTarget === 'electron') {
       return
     }
     void pollSuggestionOnce()
@@ -180,7 +222,14 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
     return () => {
       isCancelled = true
     }
-  }, [accountId, bridgeFeatureEnabled, chat.id, chat.name, pollSuggestionOnce])
+  }, [
+    accountId,
+    bridgeFeatureEnabled,
+    chat.id,
+    chat.name,
+    pollSuggestionOnce,
+    runtimeTarget,
+  ])
 
   const copySuggestion = useCallback(async () => {
     if (!state.suggestedReply) {
@@ -197,13 +246,33 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
       requestId: state.requestId,
       sourceMessageId:
         state.sourceMessageId != null ? String(state.sourceMessageId) : null,
-    })
+    }, bridgeChatId)
     return true
-  }, [chat.id, client, state.requestId, state.sourceMessageId, state.suggestedReply])
+  }, [
+    bridgeChatId,
+    chat.id,
+    client,
+    state.requestId,
+    state.sourceMessageId,
+    state.suggestedReply,
+  ])
+
+  const markSuggestionUsed = useCallback(
+    async (mode: string) => {
+      return client.markSuggestionUsed(chat.id, {
+        mode,
+        requestId: state.requestId,
+        sourceMessageId:
+          state.sourceMessageId != null ? String(state.sourceMessageId) : null,
+      }, bridgeChatId)
+    },
+    [bridgeChatId, chat.id, client, state.requestId, state.sourceMessageId]
+  )
 
   const regenerateSuggestion = useCallback(async () => {
     dismissedIdentityRef.current = null
-    const success = await client.regenerateSuggestion(chat.id)
+    consumedSuggestionByAccountAndChat.delete(accountChat)
+    const success = await client.regenerateSuggestion(chat.id, bridgeChatId)
     if (!success) {
       setState(prev => ({
         ...prev,
@@ -214,18 +283,50 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
     }
     setState(prev => ({ ...prev, status: 'queued', error: null, isDismissed: false }))
     return true
-  }, [chat.id, client])
+  }, [accountChat, bridgeChatId, chat.id, client])
 
   const dismissSuggestion = useCallback(async () => {
     const identity = suggestionIdentity(state)
     dismissedIdentityRef.current = identity
+    if (identity != null) {
+      consumedSuggestionByAccountAndChat.set(accountChat, {
+        identity,
+        mode: 'hide',
+      })
+    }
     setState(prev => ({ ...prev, isDismissed: true }))
     void client.markSuggestionIgnored(chat.id, {
       requestId: state.requestId,
       sourceMessageId:
         state.sourceMessageId != null ? String(state.sourceMessageId) : null,
-    })
-  }, [chat.id, client, state])
+    }, bridgeChatId)
+  }, [accountChat, bridgeChatId, chat.id, client, state])
+
+  const clearSuggestionAfterSend = useCallback(
+    (forcedIdentity?: string | null) => {
+      const identity = forcedIdentity ?? suggestionIdentity(state)
+      dismissedIdentityRef.current = identity
+      if (identity != null) {
+        consumedSuggestionByAccountAndChat.set(accountChat, {
+          identity,
+          mode: 'clear',
+        })
+      }
+      setState(prev => ({
+        ...defaultSuggestionState(prev.chatId),
+        isDismissed: false,
+      }))
+    },
+    [accountChat, state]
+  )
+
+  const clearConsumedSuggestionIdentity = useCallback(() => {
+    consumedSuggestionByAccountAndChat.delete(accountChat)
+    setState(prev => ({
+      ...defaultSuggestionState(prev.chatId),
+      isDismissed: false,
+    }))
+  }, [accountChat])
 
   return {
     suggestionState: state,
@@ -234,6 +335,9 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
       copySuggestion,
       regenerateSuggestion,
       dismissSuggestion,
+      markSuggestionUsed,
+      clearSuggestionAfterSend,
+      clearConsumedSuggestionIdentity,
       pollSuggestionOnce,
     },
   }

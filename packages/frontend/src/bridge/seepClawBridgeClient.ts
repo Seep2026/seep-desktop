@@ -40,6 +40,10 @@ export interface BridgeSuggestionState {
   updatedAt: number | null
 }
 
+function resolveBridgeChatPathId(chatId: number, bridgeChatId?: string) {
+  return encodeURIComponent(bridgeChatId ?? String(chatId))
+}
+
 export interface BridgeFeedbackPayload {
   mode?: string
   reason?: string
@@ -368,8 +372,13 @@ export class SeepClawBridgeClient {
     return Boolean(response?.ok)
   }
 
-  async getSuggestion(chatId: number): Promise<BridgeSuggestionState | null> {
-    const response = await this.request(`/suggestions/${chatId}`)
+  async getSuggestion(
+    chatId: number,
+    bridgeChatId?: string
+  ): Promise<BridgeSuggestionState | null> {
+    const response = await this.request(
+      `/suggestions/${resolveBridgeChatPathId(chatId, bridgeChatId)}`
+    )
     if (!response) {
       return null
     }
@@ -394,18 +403,22 @@ export class SeepClawBridgeClient {
     return normalizeSuggestionState(chatId, data)
   }
 
-  async regenerateSuggestion(chatId: number): Promise<boolean> {
-    const response = await this.request(`/suggestions/${chatId}/regenerate`, {
+  async regenerateSuggestion(chatId: number, bridgeChatId?: string): Promise<boolean> {
+    const response = await this.request(
+      `/suggestions/${resolveBridgeChatPathId(chatId, bridgeChatId)}/regenerate`,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
-    })
+      }
+    )
     return Boolean(response?.ok)
   }
 
   async markSuggestionIgnored(
     chatId: number,
-    payload: BridgeFeedbackPayload
+    payload: BridgeFeedbackPayload,
+    bridgeChatId?: string
   ): Promise<boolean> {
     const body = {
       request_id: payload.requestId ?? null,
@@ -415,17 +428,21 @@ export class SeepClawBridgeClient {
       requestId: payload.requestId ?? null,
       sourceMessageId: payload.sourceMessageId ?? null,
     }
-    const response = await this.request(`/suggestions/${chatId}/mark-ignored`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
+    const response = await this.request(
+      `/suggestions/${resolveBridgeChatPathId(chatId, bridgeChatId)}/mark-ignored`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }
+    )
     return Boolean(response?.ok)
   }
 
   async markSuggestionUsed(
     chatId: number,
-    payload: BridgeFeedbackPayload
+    payload: BridgeFeedbackPayload,
+    bridgeChatId?: string
   ): Promise<boolean> {
     const body = {
       request_id: payload.requestId ?? null,
@@ -436,11 +453,14 @@ export class SeepClawBridgeClient {
       sourceMessageId: payload.sourceMessageId ?? null,
       mode: payload.mode,
     }
-    const response = await this.request(`/suggestions/${chatId}/mark-used`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
+    const response = await this.request(
+      `/suggestions/${resolveBridgeChatPathId(chatId, bridgeChatId)}/mark-used`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }
+    )
     return Boolean(response?.ok)
   }
 }

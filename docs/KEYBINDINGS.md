@@ -30,6 +30,10 @@ Call MaybeNetwork (can help if deltachat doesn't detect that it is online again 
 
 Scroll up/down a page in the messagelist: `PageUp` and `PageDown`
 
+Pause Seep auto-managed mode (global shortcut, Electron): `Cmd + Shift + 0`
+
+Resume Seep auto-managed mode (global shortcut, Electron): `Cmd + Shift + 9`
+
 ## Composer
 
 When `Press Enter to Send` is deactivated: `ctrl + enter` or `shift + enter` or `cmd ⌘ + enter` to send the message.

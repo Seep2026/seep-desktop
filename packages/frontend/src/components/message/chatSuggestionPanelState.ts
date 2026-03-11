@@ -1,7 +1,7 @@
 import type { ChatSuggestionState } from '../../hooks/chat/useChatSuggestion'
 
 export function suggestionPanelActionLabels() {
-  return ['Copy', 'Regenerate', 'Dismiss', 'auto'] as const
+  return ['Copy', 'Regenerate', 'Dismiss'] as const
 }
 
 export function shouldRenderSuggestionPanel(state: ChatSuggestionState) {

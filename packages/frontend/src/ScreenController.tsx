@@ -268,7 +268,9 @@ export default class ScreenController extends Component {
 
   componentDidMount() {
     BackendRemote.on('Error', this.onError)
-    BackendRemote.on('IncomingMsg', this.onIncomingMsgForSuggestion)
+    if (runtime.getRuntimeInfo().target === 'browser') {
+      BackendRemote.on('IncomingMsg', this.onIncomingMsgForSuggestion)
+    }
 
     runtime.onResumeFromSleep = throttle(() => {
       log.info('onResumeFromSleep')
@@ -287,7 +289,9 @@ export default class ScreenController extends Component {
 
   componentWillUnmount() {
     BackendRemote.off('Error', this.onError)
-    BackendRemote.off('IncomingMsg', this.onIncomingMsgForSuggestion)
+    if (runtime.getRuntimeInfo().target === 'browser') {
+      BackendRemote.off('IncomingMsg', this.onIncomingMsgForSuggestion)
+    }
 
     window.removeEventListener('resize', this.updateSmallScreenMode)
   }

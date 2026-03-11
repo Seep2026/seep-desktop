@@ -6,20 +6,22 @@ export function suggestionIdentity(
     'requestId' | 'sourceMessageId' | 'updatedAt' | 'suggestedReply'
   >
 ) {
-  if (
-    state.requestId == null &&
-    state.sourceMessageId == null &&
-    state.updatedAt == null &&
-    !state.suggestedReply
-  ) {
+  if (state.requestId && state.requestId.length > 0) {
+    return `req:${state.requestId}`
+  }
+  if (state.sourceMessageId != null) {
+    return JSON.stringify(['src', state.sourceMessageId, state.suggestedReply ?? null])
+  }
+  if (state.suggestedReply && state.suggestedReply.length > 0) {
+    return JSON.stringify(['reply', state.suggestedReply])
+  }
+  if (state.updatedAt != null) {
+    return `ts:${state.updatedAt}`
+  }
+  if (!state.suggestedReply) {
     return null
   }
-  return JSON.stringify([
-    state.requestId,
-    state.sourceMessageId,
-    state.updatedAt,
-    state.suggestedReply,
-  ])
+  return null
 }
 
 export function shouldSubmitIncomingMessage(

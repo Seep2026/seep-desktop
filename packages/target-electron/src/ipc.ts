@@ -52,6 +52,7 @@ import {
   startHandlingIncomingVideoCalls,
   startOutgoingVideoCall,
 } from './windows/video-call.js'
+import { AutoManagedOrchestrator } from './auto-managed/orchestrator.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -428,9 +429,24 @@ export async function init(cwd: string, logHandler: LogHandler) {
   const stopHandlingIncomingVideoCalls = startHandlingIncomingVideoCalls(
     dcController.jsonrpcRemote
   )
+  const autoManagedOrchestrator = new AutoManagedOrchestrator({
+    jsonrpcRemote: dcController.jsonrpcRemote,
+  })
+  autoManagedOrchestrator.start()
+
+  ipcMain.handle('auto-managed.get-state', () => {
+    return autoManagedOrchestrator.getStateSnapshot()
+  })
+  ipcMain.handle('auto-managed.pause', () => {
+    return autoManagedOrchestrator.pause('ipc')
+  })
+  ipcMain.handle('auto-managed.resume', () => {
+    return autoManagedOrchestrator.resume('ipc')
+  })
 
   // the shutdown function
   return () => {
+    autoManagedOrchestrator.stop()
     stopHandlingIncomingVideoCalls()
     dcController.jsonrpcRemote.rpc.stopIoForAllAccounts()
   }

@@ -13,6 +13,7 @@ import {
 import '@deltachat-desktop/shared/global.d.ts'
 
 import {
+  AutoManagedRuntimeState,
   DropListener,
   MediaAccessStatus,
   MediaType,
@@ -47,6 +48,11 @@ const idToRequestMap = new Map<
   yerpc.Message['id'],
   { message: yerpc.Message; sentAt: number }
 >()
+
+type JsonRpcCoreEventPayload = {
+  contextId: number
+  event: { kind: string }
+}
 
 class ElectronTransport extends BaseTransport {
   constructor(private callCounterFunction: (label: string) => void) {
@@ -115,11 +121,44 @@ class ElectronTransport extends BaseTransport {
 }
 
 class ElectronDeltachat extends BaseDeltaChat<ElectronTransport> {
+  private readonly onCoreEvent = (
+    _ev: unknown,
+    payload: JsonRpcCoreEventPayload
+  ) => {
+    if (
+      !payload ||
+      !Number.isFinite(payload.contextId) ||
+      typeof payload.event !== 'object' ||
+      typeof payload.event?.kind !== 'string'
+    ) {
+      return
+    }
+    this.emitCoreEvent(payload.contextId, payload.event)
+  }
+
+  private emitCoreEvent(contextId: number, event: { kind: string }) {
+    type DeltaChatEmitterBridge = {
+      emit: (eventName: string, accountId: number, event: unknown) => void
+      contextEmitters: Record<
+        number,
+        { emit: (eventName: string, event: unknown) => void }
+      >
+    }
+    const deltaChat = this as unknown as DeltaChatEmitterBridge
+    deltaChat.emit(event.kind, contextId, event)
+    deltaChat.emit('ALL', contextId, event)
+    if (deltaChat.contextEmitters[contextId]) {
+      deltaChat.contextEmitters[contextId].emit(event.kind, event)
+      deltaChat.contextEmitters[contextId].emit('ALL', event)
+    }
+  }
+
   close() {
-    /** noop */
+    ipcBackend.off('json-rpc-core-event', this.onCoreEvent)
   }
   constructor(callCounterFunction: (label: string) => void) {
-    super(new ElectronTransport(callCounterFunction), true)
+    super(new ElectronTransport(callCounterFunction), false)
+    ipcBackend.on('json-rpc-core-event', this.onCoreEvent)
   }
 }
 
@@ -566,6 +605,27 @@ class ElectronRuntime implements Runtime {
     request: RuntimeHttpRequest
   ): Promise<RuntimeHttpResponse | null> {
     return ipcBackend.invoke('runtime.requestHttp', request)
+  }
+
+  getAutoManagedState(): Promise<AutoManagedRuntimeState | null> {
+    return ipcBackend.invoke('auto-managed.get-state').catch(() => null)
+  }
+
+  setAutoManagedPaused(paused: boolean): Promise<boolean> {
+    const channel = paused ? 'auto-managed.pause' : 'auto-managed.resume'
+    return ipcBackend.invoke(channel).catch(() => false)
+  }
+
+  onAutoManagedStateChange(
+    callback: (state: AutoManagedRuntimeState) => void
+  ): () => void {
+    const listener = (_ev: unknown, state: AutoManagedRuntimeState) => {
+      callback(state)
+    }
+    ipcBackend.on('auto-managed-state', listener)
+    return () => {
+      ipcBackend.off('auto-managed-state', listener)
+    }
   }
 }
 

@@ -65,12 +65,11 @@ describe('chat suggestion panel state helpers', () => {
     ).to.eq('Bridge down')
   })
 
-  it('keeps action order and appends auto toggle at the end', () => {
+  it('keeps action order for manual actions', () => {
     expect(suggestionPanelActionLabels()).to.deep.equal([
       'Copy',
       'Regenerate',
       'Dismiss',
-      'auto',
     ])
   })
 })

@@ -49,6 +49,16 @@ import { unknownErrorToString } from '../helpers/unknownErrorToString'
 
 const log = getLogger('renderer/composer')
 
+export type ComposerInternalSendResult = {
+  invoked: boolean
+  sent: boolean
+}
+
+export type ComposerActionHandle = {
+  canInvokeInternalSend: () => boolean
+  invokeInternalSendIfPossible: () => Promise<ComposerInternalSendResult>
+}
+
 const Composer = forwardRef<
   any,
   {
@@ -72,6 +82,7 @@ const Composer = forwardRef<
     clearDraftState: () => void
     setDraftState: (newValue: DraftObject) => void
     messageCache: { [msgId: number]: Type.MessageLoadResult | undefined }
+    composerActionRef?: React.MutableRefObject<ComposerActionHandle | null>
   }
 >((props, ref) => {
   const {
@@ -174,6 +185,7 @@ const Composer = forwardRef<
 
   const voiceMessageDisabled =
     !!draftState.file || !!draftState.text || messageEditing.isEditingModeActive
+  const sendInFlightRef = useRef(false)
 
   if (useHasChanged2(chatId) && recording) {
     setRecording(false)
@@ -218,76 +230,135 @@ const Composer = forwardRef<
     ? messageEditing.newText.length > 0
     : draftState.text.length > 0 || !!draftState.file
 
+  const canInvokeInternalSend = useCallback(() => {
+    if (chatId === null) {
+      return false
+    }
+    if (messageEditing.isEditingModeActive || draftIsLoading) {
+      return false
+    }
+    if (sendInFlightRef.current) {
+      return false
+    }
+    return draftState.text.length > 0 || !!draftState.file
+  }, [
+    chatId,
+    messageEditing.isEditingModeActive,
+    draftIsLoading,
+    draftState.text.length,
+    draftState.file,
+  ])
+
   const composerSendMessage =
     messageEditing.isEditingModeActive || draftIsLoading
       ? null
       : async () => {
+          if (!canInvokeInternalSend()) {
+            return false
+          }
           if (chatId === null) {
-            throw new Error('chat id is undefined')
+            log.error('chat id is undefined')
+            return false
           }
-          if (!(draftState.text.length > 0) && !draftState.file) {
-            log.debug(`Empty message: don't send it...`)
-            return
-          }
-
-          const preSendDraftState = draftState
-          const sendMessagePromise = sendMessage(accountId, chatId, {
-            text: draftState.text,
-            file: draftState.file || undefined,
-            filename: draftState.fileName || undefined,
-            quotedMessageId:
-              draftState.quote?.kind === 'WithMessage'
-                ? draftState.quote.messageId
-                : null,
-            viewtype: draftState.viewType,
-          })
-          // _Immediately_ clear the draft from React state.
-          // This does _not_ remove the draft from the back-end yet.
-          // This is primarily to make sure that you can't accidentally
-          // doube-send the same message.
-          //
-          // We could instead disable the textarea
-          // and disable sending the next message
-          // until the previous one has been sent,
-          // but it's unnecessary to block the user in such a way,
-          // because it's not often that `sendMessage` fails.
-          // And also disabling an input makes it lose focus,
-          // so we'd have to re-focus it, which would make screen readers
-          // re-announce it, which is disorienting.
-          // See https://github.com/deltachat/deltachat-desktop/issues/4590#issuecomment-2821985528.
-          props.clearDraftState()
-
-          let sentSuccessfully: boolean
+          sendInFlightRef.current = true
           try {
-            await sendMessagePromise
-            sentSuccessfully = true
-          } catch (err) {
-            sentSuccessfully = false
-            openDialog(AlertDialog, {
-              message:
-                tx('systemmsg_failed_sending_to', selectedChat.name) +
-                '\n' +
-                tx('error_x', unknownErrorToString(err)),
+            const preSendDraftState = draftState
+            const sendMessagePromise = sendMessage(accountId, chatId, {
+              text: draftState.text,
+              file: draftState.file || undefined,
+              filename: draftState.fileName || undefined,
+              quotedMessageId:
+                draftState.quote?.kind === 'WithMessage'
+                  ? draftState.quote.messageId
+                  : null,
+              viewtype: draftState.viewType,
             })
-            // Restore the draft, since we failed to send.
-            // Note that this will not save the draft to the backend.
+            // _Immediately_ clear the draft from React state.
+            // This does _not_ remove the draft from the back-end yet.
+            // This is primarily to make sure that you can't accidentally
+            // doube-send the same message.
             //
-            // TODO fix: hypothetically by this point the user
-            // could have started typing a new message already,
-            // and so this would override it on the frontend.
-            props.setDraftState(preSendDraftState)
-          }
-          if (sentSuccessfully) {
-            // TODO fix: hypothetically by this point the user
-            // could have started typing (and even have sent!)
-            // a new message already, so this would override it on the backend.
-            await BackendRemote.rpc.removeDraft(accountId, chatId)
+            // We could instead disable the textarea
+            // and disable sending the next message
+            // until the previous one has been sent,
+            // but it's unnecessary to block the user in such a way,
+            // because it's not often that `sendMessage` fails.
+            // And also disabling an input makes it lose focus,
+            // so we'd have to re-focus it, which would make screen readers
+            // re-announce it, which is disorienting.
+            // See https://github.com/deltachat/deltachat-desktop/issues/4590#issuecomment-2821985528.
+            props.clearDraftState()
+
+            let sentSuccessfully: boolean
+            try {
+              await sendMessagePromise
+              sentSuccessfully = true
+            } catch (err) {
+              sentSuccessfully = false
+              openDialog(AlertDialog, {
+                message:
+                  tx('systemmsg_failed_sending_to', selectedChat.name) +
+                  '\n' +
+                  tx('error_x', unknownErrorToString(err)),
+              })
+              // Restore the draft, since we failed to send.
+              // Note that this will not save the draft to the backend.
+              //
+              // TODO fix: hypothetically by this point the user
+              // could have started typing a new message already,
+              // and so this would override it on the frontend.
+              props.setDraftState(preSendDraftState)
+              return false
+            }
+            if (sentSuccessfully) {
+              // TODO fix: hypothetically by this point the user
+              // could have started typing (and even have sent!)
+              // a new message already, so this would override it on the backend.
+              await BackendRemote.rpc.removeDraft(accountId, chatId)
+            }
+            return true
+          } finally {
+            sendInFlightRef.current = false
           }
         }
 
+  const invokeInternalSendIfPossible = useCallback(async () => {
+    if (composerSendMessage == null || !canInvokeInternalSend()) {
+      return {
+        invoked: false,
+        sent: false,
+      }
+    }
+
+    const sent = await composerSendMessage()
+    return {
+      invoked: true,
+      sent: Boolean(sent),
+    }
+  }, [canInvokeInternalSend, composerSendMessage])
+
+  useEffect(() => {
+    if (!props.composerActionRef) {
+      return
+    }
+    props.composerActionRef.current = {
+      canInvokeInternalSend,
+      invokeInternalSendIfPossible,
+    }
+    return () => {
+      if (props.composerActionRef) {
+        props.composerActionRef.current = null
+      }
+    }
+  }, [props.composerActionRef, canInvokeInternalSend, invokeInternalSendIfPossible])
+
   const sendButtonAction: null | (() => void) =
     !messageEditing.isEditingModeActive
-      ? composerSendMessage
+      ? composerSendMessage == null
+        ? null
+        : () => {
+            void composerSendMessage()
+          }
       : messageEditing.doSendEditRequest
 
   useKeyBindingAction(KeybindAction.Composer_SelectReplyToUp, () => {
