@@ -3,13 +3,18 @@ import { T } from '@deltachat/jsonrpc-client'
 import { runtime } from '@deltachat-desktop/runtime-interface'
 
 import { getLogger } from '../../../../shared/logger'
-import { catchUpLatestIncomingMessageForChat } from '../../bridge/seepClawBridgeEventForwarder'
+import {
+  catchUpLatestIncomingMessageForChat,
+  forwardIncomingMessageToSeepBridge,
+} from '../../bridge/seepClawBridgeEventForwarder'
 import {
   BridgeSuggestionState,
   BridgeTransport,
   SeepClawBridgeClient,
 } from '../../bridge/seepClawBridgeClient'
 import { suggestionIdentity } from './chatSuggestionUtils'
+import { onDCEvent } from '../../backend-com'
+import type { AutoManagedRuntimeState } from '@deltachat-desktop/runtime-interface'
 
 const log = getLogger('renderer/useChatSuggestion')
 const POLL_INTERVAL_MS = 1000
@@ -97,6 +102,36 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
   const runtimeTarget = runtime.getRuntimeInfo().target
   const bridgeFeatureEnabled = isBridgeFeatureEnabled()
   const bridgeChatId = resolveBridgeChatId(runtimeTarget, accountId, chat.id)
+  const [autoManagedPaused, setAutoManagedPaused] = useState(false)
+  const rendererBridgeIngestionEnabled =
+    runtimeTarget === 'browser' ||
+    (runtimeTarget === 'electron' && autoManagedPaused)
+
+  useEffect(() => {
+    if (
+      runtimeTarget !== 'electron' ||
+      typeof runtime.getAutoManagedState !== 'function'
+    ) {
+      setAutoManagedPaused(false)
+      return
+    }
+    let cancelled = false
+    void runtime.getAutoManagedState().then(state => {
+      if (!cancelled) {
+        setAutoManagedPaused(Boolean(state?.paused))
+      }
+    })
+    const unsubscribe =
+      runtime.onAutoManagedStateChange?.((state: AutoManagedRuntimeState) => {
+        if (!cancelled) {
+          setAutoManagedPaused(Boolean(state?.paused))
+        }
+      }) ?? (() => {})
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [runtimeTarget])
 
   const activeChatIdRef = useRef(chat.id)
   const inFlightPollRef = useRef(false)
@@ -183,7 +218,7 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
   }, [bridgeChatId, bridgeFeatureEnabled, client, updateSuggestionState])
 
   useEffect(() => {
-    if (!bridgeFeatureEnabled || runtimeTarget === 'electron') {
+    if (!bridgeFeatureEnabled) {
       return
     }
     void pollSuggestionOnce()
@@ -196,7 +231,7 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
   }, [bridgeFeatureEnabled, pollSuggestionOnce])
 
   useEffect(() => {
-    if (!bridgeFeatureEnabled) {
+    if (!bridgeFeatureEnabled || !rendererBridgeIngestionEnabled) {
       return
     }
 
@@ -207,6 +242,7 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
         accountId,
         chatId: chat.id,
         chatNameHint: chat.name,
+        bridgeChatId,
       })
       if (isCancelled) {
         return
@@ -224,11 +260,42 @@ export function useChatSuggestion(accountId: number, chat: T.FullChat) {
     }
   }, [
     accountId,
+    bridgeChatId,
     bridgeFeatureEnabled,
     chat.id,
     chat.name,
     pollSuggestionOnce,
-    runtimeTarget,
+    rendererBridgeIngestionEnabled,
+  ])
+
+  useEffect(() => {
+    if (!bridgeFeatureEnabled || !rendererBridgeIngestionEnabled) {
+      return
+    }
+
+    return onDCEvent(accountId, 'IncomingMsg', ({ chatId, msgId }) => {
+      if (chatId !== activeChatIdRef.current) {
+        return
+      }
+      void forwardIncomingMessageToSeepBridge({
+        accountId,
+        chatId,
+        messageId: msgId,
+        chatNameHint: chat.name,
+        bridgeChatId,
+      }).then(forwarded => {
+        if (forwarded) {
+          void pollSuggestionOnce()
+        }
+      })
+    })
+  }, [
+    accountId,
+    bridgeChatId,
+    bridgeFeatureEnabled,
+    chat.name,
+    pollSuggestionOnce,
+    rendererBridgeIngestionEnabled,
   ])
 
   const copySuggestion = useCallback(async () => {

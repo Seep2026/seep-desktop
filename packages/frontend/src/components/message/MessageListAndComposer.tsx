@@ -340,10 +340,13 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
     setAutoSuggestionEnabledState(nextValue)
     persistAutoSuggestionEnabled(nextValue)
   }, [])
-  const isMainProcessAutoManagedMode =
-    runtime.getRuntimeInfo().target === 'electron'
   const [autoManagedState, setAutoManagedState] =
     useState<AutoManagedRuntimeState | null>(null)
+  const isMainProcessAutoManagedMode =
+    runtime.getRuntimeInfo().target === 'electron'
+  const isMainProcessAutoManagedPaused = Boolean(
+    isMainProcessAutoManagedMode && autoManagedState?.paused
+  )
 
   useEffect(() => {
     if (!isMainProcessAutoManagedMode || !runtime.getAutoManagedState) {
@@ -373,7 +376,8 @@ export default function MessageListAndComposer({ accountId, chat }: Props) {
     ? `Auto-managed: ${autoManagedState?.paused ? 'Paused' : 'Running'}`
     : null
   const rendererAutoSuggestionEnabled =
-    autoSuggestionEnabled && !isMainProcessAutoManagedMode
+    autoSuggestionEnabled &&
+    (!isMainProcessAutoManagedMode || isMainProcessAutoManagedPaused)
   const autoPopulatedSuggestionByChatRef = useRef<
     Map<number, AutoPopulatedSuggestion>
   >(new Map())

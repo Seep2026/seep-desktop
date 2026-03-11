@@ -171,8 +171,9 @@ export async function forwardIncomingMessageToSeepBridge(params: {
   chatId: number
   messageId: number
   chatNameHint?: string | null
+  bridgeChatId?: string
 }) {
-  const { accountId, chatId, messageId, chatNameHint } = params
+  const { accountId, chatId, messageId, chatNameHint, bridgeChatId } = params
   if (!isBridgeFeatureEnabled()) {
     return false
   }
@@ -197,7 +198,7 @@ export async function forwardIncomingMessageToSeepBridge(params: {
 
     const recentMessages = await getRecentMessages(accountId, chatId)
     const success = await sharedBridgeClient.sendMessageArrivedEvent({
-      chat_id: String(chatId),
+      chat_id: bridgeChatId ?? String(chatId),
       contact_id: contactId,
       contact_name: contactName,
       latest_message: mapMessageToBridgeMessage(latestMessage),
@@ -226,8 +227,9 @@ export async function catchUpLatestIncomingMessageForChat(params: {
   accountId: number
   chatId: number
   chatNameHint?: string | null
+  bridgeChatId?: string
 }) {
-  const { accountId, chatId, chatNameHint } = params
+  const { accountId, chatId, chatNameHint, bridgeChatId } = params
   if (!isBridgeFeatureEnabled()) {
     return false
   }
@@ -263,6 +265,7 @@ export async function catchUpLatestIncomingMessageForChat(params: {
         chatId,
         messageId: result.id,
         chatNameHint,
+        bridgeChatId,
       })
     }
 
@@ -272,4 +275,3 @@ export async function catchUpLatestIncomingMessageForChat(params: {
     return false
   }
 }
-
