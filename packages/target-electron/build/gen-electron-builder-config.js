@@ -105,7 +105,7 @@ build['mac'] = {
   },
   gatekeeperAssess: true,
   hardenedRuntime: true,
-  icon: 'build/icon-mac.icns',
+  icon: 'build/seep-icon-from-seep75.png',
   provisioningProfile: '../../../embedded.provisionprofile',
   files: [...files, PREBUILD_FILTERS.NOT_LINUX, PREBUILD_FILTERS.NOT_WINDOWS],
   darkModeSupport: true,
