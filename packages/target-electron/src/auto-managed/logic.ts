@@ -3,6 +3,7 @@ export type AutoQueueItem = {
   chatId: number
   messageId: number
   enqueuedAt: number
+  retryCount?: number
 }
 
 export type SuggestionLike = {
@@ -90,4 +91,19 @@ export function shouldSkipSuggestionSend(params: {
     return true
   }
   return false
+}
+
+export function canRetryTransientFailure(params: {
+  retryCount: number
+  maxRetries: number
+}) {
+  const { retryCount, maxRetries } = params
+  return retryCount < maxRetries
+}
+
+export function nextRetryDelayMs(retryCount: number) {
+  const normalizedRetryCount = Math.max(1, retryCount)
+  const baseDelay = 1000
+  const maxDelay = 10_000
+  return Math.min(baseDelay * 2 ** (normalizedRetryCount - 1), maxDelay)
 }

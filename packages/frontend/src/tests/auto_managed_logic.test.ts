@@ -4,8 +4,10 @@ import { describe, it } from 'mocha'
 import {
   accountChatKey,
   bridgeChatId,
+  canRetryTransientFailure,
   canAdvanceQueue,
   enqueueLatestPerChat,
+  nextRetryDelayMs,
   shouldEnqueueIncomingMessage,
   shouldSkipSuggestionSend,
   transitionPauseState,
@@ -116,5 +118,35 @@ describe('auto-managed logic helpers', () => {
         lastAutoSentSourceMessageId: 'm-9',
       })
     ).to.equal(false)
+  })
+
+  it('retries transient bridge failures only up to configured limit', () => {
+    expect(
+      canRetryTransientFailure({
+        retryCount: 0,
+        maxRetries: 5,
+      })
+    ).to.equal(true)
+    expect(
+      canRetryTransientFailure({
+        retryCount: 4,
+        maxRetries: 5,
+      })
+    ).to.equal(true)
+    expect(
+      canRetryTransientFailure({
+        retryCount: 5,
+        maxRetries: 5,
+      })
+    ).to.equal(false)
+  })
+
+  it('uses bounded exponential backoff delays for retries', () => {
+    expect(nextRetryDelayMs(1)).to.equal(1000)
+    expect(nextRetryDelayMs(2)).to.equal(2000)
+    expect(nextRetryDelayMs(3)).to.equal(4000)
+    expect(nextRetryDelayMs(4)).to.equal(8000)
+    expect(nextRetryDelayMs(5)).to.equal(10000)
+    expect(nextRetryDelayMs(6)).to.equal(10000)
   })
 })

@@ -7,8 +7,10 @@ import {
   accountChatKey,
   AutoQueueItem,
   bridgeChatId,
+  canRetryTransientFailure,
   canAdvanceQueue,
   enqueueLatestPerChat,
+  nextRetryDelayMs,
   shouldEnqueueIncomingMessage,
   shouldSkipSuggestionSend,
   transitionPauseState,
@@ -25,6 +27,7 @@ const log = getLogger('main/auto-managed')
 const POLL_INTERVAL_MS = 800
 const POLL_TIMEOUT_MS = 30_000
 const RECENT_MESSAGE_LIMIT = 12
+const MAX_TRANSIENT_RETRIES = 5
 const PAUSE_SHORTCUT = 'CommandOrControl+Shift+0'
 const RESUME_SHORTCUT = 'CommandOrControl+Shift+9'
 
@@ -85,6 +88,7 @@ export type AutoManagedRuntimeState = {
     chatId: number
     messageId: number
     enqueuedAt: number
+    retryCount?: number
   }>
   inFlightByChat: Record<string, InFlightState | null>
   lastProcessedMessageIdByChat: Record<string, string | null>
@@ -273,6 +277,7 @@ export class AutoManagedOrchestrator {
       chatId,
       messageId,
       enqueuedAt: Date.now(),
+      retryCount: 0,
     })
     this.emitState()
     this.kick()
@@ -350,8 +355,7 @@ export class AutoManagedOrchestrator {
         status: accepted.status,
       })
       if (!accepted.accepted) {
-        this.markProcessed(key, item.messageId)
-        return 'done'
+        return this.handleTransientFailure(item, key, 'bridge_not_accepted')
       }
       this.state.inFlightByChat[key] = {
         requestId: accepted.requestId,
@@ -387,8 +391,7 @@ export class AutoManagedOrchestrator {
         return 'requeue'
       }
       if (!suggestion) {
-        this.markProcessed(key, item.messageId)
-        return 'done'
+        return this.handleTransientFailure(item, key, 'bridge_suggestion_unavailable')
       }
 
       if (suggestion.requestId) {
@@ -452,12 +455,52 @@ export class AutoManagedOrchestrator {
         messageId: item.messageId,
         error,
       })
-      this.markProcessed(key, item.messageId)
-      return 'done'
+      return this.handleTransientFailure(item, key, 'process_exception')
     } finally {
       this.state.inFlightByChat[key] = null
       this.emitState()
     }
+  }
+
+  private async handleTransientFailure(
+    item: AutoQueueItem,
+    accountChat: string,
+    reason:
+      | 'bridge_not_accepted'
+      | 'bridge_suggestion_unavailable'
+      | 'process_exception'
+  ): Promise<'done' | 'requeue'> {
+    const retryCount = Number(item.retryCount ?? 0)
+    if (
+      !canRetryTransientFailure({
+        retryCount,
+        maxRetries: MAX_TRANSIENT_RETRIES,
+      })
+    ) {
+      log.warn('auto-managed giving up after retries', {
+        accountChat,
+        messageId: item.messageId,
+        retryCount,
+        maxRetries: MAX_TRANSIENT_RETRIES,
+        reason,
+      })
+      this.markProcessed(accountChat, item.messageId)
+      return 'done'
+    }
+
+    item.retryCount = retryCount + 1
+    const delayMs = nextRetryDelayMs(item.retryCount)
+    log.warn('auto-managed transient failure, scheduling retry', {
+      accountChat,
+      messageId: item.messageId,
+      retryCount: item.retryCount,
+      maxRetries: MAX_TRANSIENT_RETRIES,
+      delayMs,
+      reason,
+    })
+
+    await sleep(delayMs)
+    return 'requeue'
   }
 
   private async buildMessageArrivedPayload(

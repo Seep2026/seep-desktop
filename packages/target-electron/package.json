@@ -46,6 +46,7 @@
     "migration-pretest": "esbuild --bundle --sourcemap --platform=node migration-tests/*.ts --outdir=migration-tests/compiled --external:mocha --external:chai --external:adm-zip --external:isomorphic-ws --external:@deltachat/jsonrpc-client --external:@deltachat/stdio-rpc-server --format=esm",
     "migration-test": "pnpm migration-pretest && NODE_OPTIONS=--enable-source-maps mocha 'migration-tests/compiled/*.js'",
     "pack:generate_config": "node ./build/gen-electron-builder-config.js && prettier --write ./electron-builder.json5 --log-level silent",
+    "icons:generate:seep-mac": "bash ./build/generate-seep-mac-icon.sh",
     "pack:patch-node-modules": "node ../../bin/writeFlatDependencies.js packages/target-electron node_modules",
     "pack": "pnpm pack:generate_config && pnpm run pack:patch-node-modules && pnpm pack:all && pnpm -w run reset:node_modules",
     "pack:win": "electron-builder --config ./electron-builder.json5 --win nsis portable",

@@ -200,9 +200,12 @@ Current behavior/limitations:
   - skip stale/error suggestions
   - skip duplicate request/source-message sends per chat
   - keep per-chat/per-account isolation using stable composite chat ids (`accountId:chatId`)
-- current technical limitation:
-  - core events in Electron main process are forwarded from the renderer event polling path
-  - so automation remains background-capable with non-frontmost windows, but still depends on the renderer event pump being alive
+- runtime/event model:
+  - Electron main process is the single consumer of core `get_next_event`
+  - main process fans out events to orchestrator (automation) and renderer (UI)
+  - renderer suggestion forwarding is only used as a paused-mode/manual fallback for the active chat
+- bridge resilience:
+  - transient bridge failures are retried with bounded exponential backoff
 
 ### Troubleshooting <a id="troubleshooting"></a>
 
