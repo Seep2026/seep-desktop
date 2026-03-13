@@ -200,7 +200,10 @@ async function setFuses(context) {
 
   // Apply security fuses for all builds
   let appPath
-  let executableName = context.packager.executableName ?? 'DeltaChat'
+  let executableName =
+    context.packager.executableName ??
+    context.packager.appInfo?.productFilename ??
+    'DeltaChat'
   if (process.env.IS_PREVIEW) {
     executableName = executableName + '-DevBuild'
   }
